@@ -290,6 +290,12 @@
             max-width: 300px;
             margin: 0 auto 15px;
         }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -332,11 +338,6 @@
             <div class="form-group">
                 <label for="customerName">👤 Müşteri Adı Soyadı:</label>
                 <input type="text" id="customerName" placeholder="Adınızı ve soyadınızı yazın">
-            </div>
-            
-            <div class="form-group">
-                <label for="customerPhone">📞 Telefon Numarası:</label>
-                <input type="tel" id="customerPhone" placeholder="05XX XXX XX XX">
             </div>
 
             <div class="form-group">
@@ -414,17 +415,25 @@
                 <div class="document-list">
                     <h3>📋 Evrak Listesi</h3>
                     <div id="documentsContainer">
-                        <!-- Evraklar buraya eklenecek -->
+                        <div class="loading">📡 Veriler yükleniyor...</div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Supabase CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
-        // 🔐 ADMIN ŞİFRESİ - BURAYI DEĞİŞTİRİN!
+        // 🔐 SUPABASE AYARLARI - BUNLARI SİZİN BİLGİLERİNİZLE DEĞİŞTİRİN!
+        const SUPABASE_URL = 'https://oijvqejxhgcnisrwegub.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9panZxZWp4aGdjbmlzcndlZ3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5ODc2MjksImV4cCI6MjA3NzU2MzYyOX0.-5gqpBP4RYlVT-wcl8c_LNCnJ6FoxdmKA8iHIfQEWyc';
+
+        // 🔐 ADMIN ŞİFRESİ
         const ADMIN_PASSWORD = "firat123*";
-        let allDocuments = [];
+
+        // Supabase bağlantısı
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         let stream = null;
 
         // Tab değiştirme
@@ -538,11 +547,10 @@
             document.getElementById('cameraContainer').style.display = 'none';
         }
 
-        // Evrak kaydetme
-        function saveDocument() {
+        // Evrak kaydetme - SUPABASE'E KAYDET!
+        async function saveDocument() {
             const files = document.getElementById('fileInput').files;
             const customerName = document.getElementById('customerName').value;
-            const customerPhone = document.getElementById('customerPhone').value;
             const documentType = document.getElementById('documentType').value;
             
             if (files.length === 0) {
@@ -555,50 +563,61 @@
                 return;
             }
 
-            const fileReaders = [];
-            const fileData = [];
+            try {
+                // Dosyaları Supabase Storage'a yükle
+                const fileUrls = [];
+                for (let file of files) {
+                    const fileName = `${Date.now()}-${file.name}`;
+                    const { data, error } = await supabase.storage
+                        .from('evrak-dosyalari')
+                        .upload(fileName, file);
 
-            for (let file of files) {
-                const reader = new FileReader();
-                fileReaders.push(new Promise((resolve) => {
-                    reader.onload = function(e) {
-                        fileData.push({
-                            name: file.name,
-                            type: file.type,
-                            size: file.size,
-                            data: e.target.result
-                        });
-                        resolve();
-                    };
-                    reader.readAsDataURL(file);
-                }));
-            }
+                    if (error) throw error;
 
-            Promise.all(fileReaders).then(() => {
-                const documentData = {
-                    id: Date.now(),
-                    date: new Date().toLocaleString('tr-TR'),
-                    customerName,
-                    customerPhone,
-                    documentType,
-                    files: fileData
-                };
+                    // Dosya URL'sini al
+                    const { data: urlData } = supabase.storage
+                        .from('evrak-dosyalari')
+                        .getPublicUrl(fileName);
 
-                allDocuments.push(documentData);
+                    fileUrls.push({
+                        name: file.name,
+                        url: urlData.publicUrl,
+                        size: file.size,
+                        type: file.type
+                    });
+                }
 
+                // Veritabanına kaydet
+                const { data, error } = await supabase
+                    .from('documents')
+                    .insert([
+                        {
+                            customer_name: customerName,
+                            document_type: documentType,
+                            files: fileUrls
+                        }
+                    ]);
+
+                if (error) throw error;
+
+                // Başarı mesajı
                 const successMessage = document.getElementById('successMessage');
                 successMessage.style.display = 'block';
                 
+                // Formu temizle
                 setTimeout(() => {
                     successMessage.style.display = 'none';
                     document.getElementById('fileInput').value = '';
                     document.getElementById('customerName').value = '';
-                    document.getElementById('customerPhone').value = '';
                     document.getElementById('documentType').value = '';
                     document.getElementById('previewArea').innerHTML = '';
                     document.getElementById('fileInfo').style.display = 'none';
                 }, 3000);
-            });
+
+            } catch (error) {
+                console.error('Hata:', error);
+                alert('Evrak kaydedilirken hata oluştu: ' + error.message);
+            }
         }
 
         // Admin şifre kontrolü
@@ -621,27 +640,42 @@
             }
         }
 
-        // Admin verilerini yükle
-        function loadAdminData() {
-            const container = document.getElementById('documentsContainer');
-            
-            if (allDocuments.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div style="font-size: 48px; margin-bottom: 20px;">📭</div>
-                        <h3>Henüz evrak bulunmuyor</h3>
-                        <p>Müşteriler evrak yükledikçe burada görünecek</p>
-                    </div>
-                `;
-            } else {
-                container.innerHTML = '';
-                allDocuments.slice().reverse().forEach(doc => {
-                    const documentElement = createDocumentElement(doc);
-                    container.appendChild(documentElement);
-                });
+        // Admin verilerini yükle - SUPABASE'DEN OKU!
+        async function loadAdminData() {
+            try {
+                const container = document.getElementById('documentsContainer');
+                container.innerHTML = '<div class="loading">📡 Veriler yükleniyor...</div>';
+
+                const { data: documents, error } = await supabase
+                    .from('documents')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                if (!documents || documents.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div style="font-size: 48px; margin-bottom: 20px;">📭</div>
+                            <h3>Henüz evrak bulunmuyor</h3>
+                            <p>Müşteriler evrak yükledikçe burada görünecek</p>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '';
+                    documents.forEach(doc => {
+                        const documentElement = createDocumentElement(doc);
+                        container.appendChild(documentElement);
+                    });
+                }
+                
+                updateAdminStats(documents || []);
+
+            } catch (error) {
+                console.error('Hata:', error);
+                document.getElementById('documentsContainer').innerHTML = 
+                    '<div class="error-message">Veriler yüklenirken hata oluştu: ' + error.message + '</div>';
             }
-            
-            updateAdminStats();
         }
 
         // Evrak kartı oluştur
@@ -651,12 +685,9 @@
             div.innerHTML = `
                 <div class="document-header">
                     <div class="document-info">
-                        <strong>${doc.customerName}</strong>
-                        <div style="color: #666; font-size: 0.9em;">
-                            ${doc.customerPhone || 'Tel yok'}
-                        </div>
+                        <strong>${doc.customer_name}</strong>
                         <div style="color: #888; font-size: 0.8em;">
-                            ${doc.date} - ${doc.documentType}
+                            ${new Date(doc.created_at).toLocaleString('tr-TR')} - ${doc.document_type}
                         </div>
                     </div>
                     <div class="document-actions">
@@ -669,7 +700,7 @@
                     ${doc.files.map(file => `
                         <div class="file-item">
                             <span>${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)</span>
-                            <button class="btn" onclick="downloadFile('${file.name}', '${file.data}')">📥</button>
+                            <button class="btn" onclick="window.open('${file.url}', '_blank')">👁️ Görüntüle</button>
                         </div>
                     `).join('')}
                 </div>
@@ -678,51 +709,55 @@
         }
 
         // İstatistikleri güncelle
-        function updateAdminStats() {
+        function updateAdminStats(documents) {
             const today = new Date().toLocaleDateString('tr-TR');
-            const todayDocuments = allDocuments.filter(doc => 
-                new Date(doc.id).toLocaleDateString('tr-TR') === today
+            const todayDocuments = documents.filter(doc => 
+                new Date(doc.created_at).toLocaleDateString('tr-TR') === today
             );
-            const totalFiles = allDocuments.reduce((sum, doc) => sum + doc.files.length, 0);
-            const uniqueCustomers = new Set(allDocuments.map(doc => doc.customerName)).size;
+            const totalFiles = documents.reduce((sum, doc) => sum + doc.files.length, 0);
+            const uniqueCustomers = new Set(documents.map(doc => doc.customer_name)).size;
 
-            document.getElementById('totalDocuments').textContent = allDocuments.length;
+            document.getElementById('totalDocuments').textContent = documents.length;
             document.getElementById('todayDocuments').textContent = todayDocuments.length;
             document.getElementById('totalFiles').textContent = totalFiles;
             document.getElementById('totalCustomers').textContent = uniqueCustomers;
         }
 
-        // Dosya indirme
-        function downloadFile(filename, dataUrl) {
-            const link = document.createElement('a');
-            link.href = dataUrl;
-            link.download = filename;
-            link.click();
-        }
-
-        // Tüm evrakı indirme
-        function downloadDocument(docId) {
-            const doc = allDocuments.find(d => d.id === docId);
-            if (doc && doc.files.length > 0) {
-                downloadFile(doc.files[0].name, doc.files[0].data);
-            }
-        }
-
         // Evrak silme
-        function deleteDocument(docId) {
+        async function deleteDocument(docId) {
             if (confirm('Bu evrakı silmek istediğinizden emin misiniz?')) {
-                allDocuments = allDocuments.filter(d => d.id !== docId);
-                showAdminMessage('Evrak başarıyla silindi!');
-                loadAdminData();
+                try {
+                    const { error } = await supabase
+                        .from('documents')
+                        .delete()
+                        .eq('id', docId);
+
+                    if (error) throw error;
+
+                    showAdminMessage('Evrak başarıyla silindi!');
+                    loadAdminData();
+                } catch (error) {
+                    alert('Silme işlemi başarısız: ' + error.message);
+                }
             }
         }
 
         // Tüm verileri temizle
-        function clearAllData() {
+        async function clearAllData() {
             if (confirm('TÜM evrak verilerini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) {
-                allDocuments = [];
-                showAdminMessage('Tüm veriler temizlendi!');
-                loadAdminData();
+                try {
+                    const { error } = await supabase
+                        .from('documents')
+                        .delete()
+                        .neq('id', 0); // Tüm kayıtları sil
+
+                    if (error) throw error;
+
+                    showAdminMessage('Tüm veriler temizlendi!');
+                    loadAdminData();
+                } catch (error) {
+                    alert('Temizleme işlemi başarısız: ' + error.message);
+                }
             }
         }
 
@@ -769,6 +804,11 @@
         // Upload area tıklama
         document.getElementById('uploadArea').addEventListener('click', () => {
             document.getElementById('fileInput').click();
+        });
+
+        // Sayfa yüklendiğinde
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Supabase sistem hazır!');
         });
     </script>
 </body>
