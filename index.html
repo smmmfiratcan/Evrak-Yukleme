@@ -436,7 +436,7 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9panZxZWp4aGdjbmlzcndlZ3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5ODc2MjksImV4cCI6MjA3NzU2MzYyOX0.-5gqpBP4RYlVT-wcl8c_LNCnJ6FoxdmKA8iHIfQEWyc';
         const ADMIN_PASSWORD = "firat123*";
 
-        // 🔧 DÜZELTİLMİŞ SUPABASE BAĞLANTISI
+        // 🔧 SUPABASE BAĞLANTISI
         let supabaseClient;
         document.addEventListener('DOMContentLoaded', function() {
             supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -453,6 +453,65 @@
                 debugInfo.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
                 debugInfo.style.display = 'block';
             }
+        }
+
+        // Tab değiştirme
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+
+            if (tabName === 'admin') {
+                loadAdminData();
+            }
+        }
+
+        // Dosya seçildiğinde
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const files = e.target.files;
+            if (files.length > 0) {
+                showPreview(files);
+                showFileInfo(files);
+            }
+        });
+
+        // Dosya önizleme
+        function showPreview(files) {
+            const previewArea = document.getElementById('previewArea');
+            previewArea.innerHTML = '';
+            
+            for (let file of files) {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const img = document.createElement('img');
+                        img.src = e.target.result;
+                        img.alt = "Önizleme";
+                        previewArea.appendChild(img);
+                    }
+                    reader.readAsDataURL(file);
+                } else if (file.type === 'application/pdf') {
+                    previewArea.innerHTML += `<div style="font-size: 48px; margin: 10px;">📄</div><p>PDF: ${file.name}</p>`;
+                }
+            }
+        }
+
+        // Dosya bilgilerini göster
+        function showFileInfo(files) {
+            const fileInfo = document.getElementById('fileInfo');
+            let infoHTML = '<strong>Seçilen Dosyalar:</strong><br>';
+            for (let file of files) {
+                const fileSize = (file.size / (1024 * 1024)).toFixed(2);
+                infoHTML += `📁 ${file.name} (${fileSize} MB)<br>`;
+            }
+            fileInfo.innerHTML = infoHTML;
+            fileInfo.style.display = 'block';
         }
 
         // Kamera fonksiyonları
@@ -514,147 +573,100 @@
             document.getElementById('cameraContainer').style.display = 'none';
         }
 
-        // Dosya işlemleri
-        function showPreview(files) {
-            const previewArea = document.getElementById('previewArea');
-            previewArea.innerHTML = '';
+        // EVRAK KAYDETME - DOSYALARLA BİRLİKTE
+        async function saveDocument() {
+            const files = document.getElementById('fileInput').files;
+            const customerName = document.getElementById('customerName').value;
+            const documentType = document.getElementById('documentType').value;
             
-            for (let file of files) {
-                if (file.type.startsWith('image/')) {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        const img = document.createElement('img');
-                        img.src = e.target.result;
-                        img.alt = "Önizleme";
-                        previewArea.appendChild(img);
+            if (files.length === 0) {
+                alert("Lütfen en az bir dosya seçin!");
+                return;
+            }
+            
+            if (!customerName || !documentType) {
+                alert("Lütfen zorunlu alanları doldurun! (Ad, Evrak Türü)");
+                return;
+            }
+
+            debug('Evrak kaydediliyor...');
+            
+            try {
+                // DOSYALARI STORAGE'A YÜKLE
+                const fileUrls = [];
+                
+                for (let file of files) {
+                    debug(`Dosya yükleniyor: ${file.name}`);
+                    
+                    // Benzersiz dosya adı oluştur
+                    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}-${file.name}`;
+                    
+                    // Storage'a yükle
+                    const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                        .from('evrak-dosyalari')
+                        .upload(fileName, file);
+
+                    if (uploadError) {
+                        debug(`Storage hatası: ${uploadError.message}`);
+                        throw uploadError;
                     }
-                    reader.readAsDataURL(file);
-                } else if (file.type === 'application/pdf') {
-                    previewArea.innerHTML += `<div style="font-size: 48px; margin: 10px;">📄</div><p>PDF: ${file.name}</p>`;
+
+                    // Public URL al
+                    const { data: urlData } = supabaseClient.storage
+                        .from('evrak-dosyalari')
+                        .getPublicUrl(fileName);
+
+                    fileUrls.push({
+                        name: file.name,
+                        url: urlData.publicUrl,
+                        size: file.size,
+                        type: file.type
+                    });
+
+                    debug(`Dosya başarıyla yüklendi: ${file.name}`);
                 }
-            }
-        }
 
-        function showFileInfo(files) {
-            const fileInfo = document.getElementById('fileInfo');
-            let infoHTML = '<strong>Seçilen Dosyalar:</strong><br>';
-            for (let file of files) {
-                const fileSize = (file.size / (1024 * 1024)).toFixed(2);
-                infoHTML += `📁 ${file.name} (${fileSize} MB)<br>`;
-            }
-            fileInfo.innerHTML = infoHTML;
-            fileInfo.style.display = 'block';
-        }
+                debug('Tüm dosyalar yüklendi, database kaydediliyor...');
 
-        // Evrak kaydetme - DÜZELTİLMİŞ
-    // Evrak kaydetme fonksiyonunu GÜNCELLEYELİM
-async function saveDocument() {
-    const files = document.getElementById('fileInput').files;
-    const customerName = document.getElementById('customerName').value;
-    const documentType = document.getElementById('documentType').value;
-    
-    if (files.length === 0) {
-        alert("Lütfen en az bir dosya seçin!");
-        return;
-    }
-    
-    if (!customerName || !documentType) {
-        alert("Lütfen zorunlu alanları doldurun! (Ad, Evrak Türü)");
-        return;
-    }
+                // VERİTABANINA KAYDET (DOSYA BİLGİLERİYLE)
+                const { data, error } = await supabaseClient
+                    .from('documents')
+                    .insert([
+                        {
+                            customer_name: customerName,
+                            document_type: documentType,
+                            files: fileUrls
+                        }
+                    ]);
 
-    debug('Evrak kaydediliyor...');
-    
-    try {
-        // DOSYALARI STORAGE'A YÜKLE
-        const fileUrls = [];
-        
-        for (let file of files) {
-            debug(`Dosya yükleniyor: ${file.name}`);
-            
-            // Benzersiz dosya adı oluştur
-            const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}-${file.name}`;
-            
-            // Storage'a yükle
-            const { data: uploadData, error: uploadError } = await supabaseClient.storage
-                .from('evrak-dosyalari')
-                .upload(fileName, file);
-
-            if (uploadError) {
-                debug(`Storage hatası: ${uploadError.message}`);
-                throw uploadError;
-            }
-
-            // Public URL al
-            const { data: urlData } = supabaseClient.storage
-                .from('evrak-dosyalari')
-                .getPublicUrl(fileName);
-
-            fileUrls.push({
-                name: file.name,
-                url: urlData.publicUrl,
-                size: file.size,
-                type: file.type
-            });
-
-            debug(`Dosya başarıyla yüklendi: ${file.name}`);
-        }
-
-        debug('Tüm dosyalar yüklendi, database kaydediliyor...');
-
-        // VERİTABANINA KAYDET (DOSYA BİLGİLERİYLE)
-        const { data, error } = await supabaseClient
-            .from('documents')
-            .insert([
-                {
-                    customer_name: customerName,
-                    document_type: documentType,
-                    files: fileUrls  // DOSYA BİLGİLERİ EKLENDİ
+                if (error) {
+                    debug('Database hatası: ' + error.message);
+                    throw error;
                 }
-            ]);
 
-        if (error) {
-            debug('Database hatası: ' + error.message);
-            throw error;
-        }
+                debug('Database başarılı!');
 
-        debug('Database başarılı!');
+                // Başarı mesajı
+                document.getElementById('successMessage').style.display = 'block';
+                document.getElementById('debugInfo').style.display = 'none';
+                
+                // Formu temizle
+                setTimeout(() => {
+                    document.getElementById('successMessage').style.display = 'none';
+                    document.getElementById('fileInput').value = '';
+                    document.getElementById('customerName').value = '';
+                    document.getElementById('documentType').value = '';
+                    document.getElementById('previewArea').innerHTML = '';
+                    document.getElementById('fileInfo').style.display = 'none';
+                }, 3000);
 
-        // Başarı mesajı
-        document.getElementById('successMessage').style.display = 'block';
-        document.getElementById('debugInfo').style.display = 'none';
-        
-        // Formu temizle
-        setTimeout(() => {
-            document.getElementById('successMessage').style.display = 'none';
-            document.getElementById('fileInput').value = '';
-            document.getElementById('customerName').value = '';
-            document.getElementById('documentType').value = '';
-            document.getElementById('previewArea').innerHTML = '';
-            document.getElementById('fileInfo').style.display = 'none';
-        }, 3000);
-
-    } catch (error) {
-        debug('HATA: ' + error.message);
-        alert('Evrak kaydedilirken hata oluştu: ' + error.message);
-    }
-}
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            document.getElementById(tabName + '-tab').classList.add('active');
-            event.target.classList.add('active');
-
-            if (tabName === 'admin') {
-                loadAdminData();
+            } catch (error) {
+                debug('HATA: ' + error.message);
+                alert('Evrak kaydedilirken hata oluştu: ' + error.message);
             }
         }
 
-        // Admin fonksiyonları
+        // ADMIN FONKSİYONLARI
         async function loadAdminData() {
             try {
                 const container = document.getElementById('documentsContainer');
@@ -711,7 +723,8 @@ async function saveDocument() {
                     <strong>Dosyalar:</strong>
                     ${doc.files && doc.files.length > 0 ? doc.files.map(file => `
                         <div class="file-item">
-                            <span>${file.name}</span>
+                            <span>${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                            <button class="btn" onclick="window.open('${file.url}', '_blank')">👁️ Görüntüle</button>
                         </div>
                     `).join('') : '<div>Dosya yok</div>'}
                 </div>
@@ -801,17 +814,9 @@ async function saveDocument() {
             }, 3000);
         }
 
-        // Event listeners
+        // EVENT LISTENERS
         document.getElementById('uploadArea').addEventListener('click', () => {
             document.getElementById('fileInput').click();
-        });
-
-        document.getElementById('fileInput').addEventListener('change', function(e) {
-            const files = e.target.files;
-            if (files.length > 0) {
-                showPreview(files);
-                showFileInfo(files);
-            }
         });
 
         // Sürükle-bırak
@@ -837,6 +842,8 @@ async function saveDocument() {
             showPreview(files);
             showFileInfo(files);
         });
+
+        debug('Sistem başlatıldı');
     </script>
 </body>
 </html>
