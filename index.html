@@ -547,68 +547,98 @@
         }
 
         // Evrak kaydetme - DÜZELTİLMİŞ
-        async function saveDocument() {
-            const files = document.getElementById('fileInput').files;
-            const customerName = document.getElementById('customerName').value;
-            const documentType = document.getElementById('documentType').value;
+    // Evrak kaydetme fonksiyonunu GÜNCELLEYELİM
+async function saveDocument() {
+    const files = document.getElementById('fileInput').files;
+    const customerName = document.getElementById('customerName').value;
+    const documentType = document.getElementById('documentType').value;
+    
+    if (files.length === 0) {
+        alert("Lütfen en az bir dosya seçin!");
+        return;
+    }
+    
+    if (!customerName || !documentType) {
+        alert("Lütfen zorunlu alanları doldurun! (Ad, Evrak Türü)");
+        return;
+    }
+
+    debug('Evrak kaydediliyor...');
+    
+    try {
+        // DOSYALARI STORAGE'A YÜKLE
+        const fileUrls = [];
+        
+        for (let file of files) {
+            debug(`Dosya yükleniyor: ${file.name}`);
             
-            if (files.length === 0) {
-                alert("Lütfen en az bir dosya seçin!");
-                return;
-            }
+            // Benzersiz dosya adı oluştur
+            const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}-${file.name}`;
             
-            if (!customerName || !documentType) {
-                alert("Lütfen zorunlu alanları doldurun! (Ad, Evrak Türü)");
-                return;
+            // Storage'a yükle
+            const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                .from('evrak-dosyalari')
+                .upload(fileName, file);
+
+            if (uploadError) {
+                debug(`Storage hatası: ${uploadError.message}`);
+                throw uploadError;
             }
 
-            debug('Evrak kaydediliyor...');
-            
-            try {
-                // Önce basit bir test
-                const testData = {
-                    customer_name: customerName,
-                    document_type: documentType,
-                    files: []
-                };
+            // Public URL al
+            const { data: urlData } = supabaseClient.storage
+                .from('evrak-dosyalari')
+                .getPublicUrl(fileName);
 
-                debug('Database test ediliyor...');
-                const { data, error } = await supabaseClient
-                    .from('documents')
-                    .insert([testData]);
+            fileUrls.push({
+                name: file.name,
+                url: urlData.publicUrl,
+                size: file.size,
+                type: file.type
+            });
 
-                if (error) {
-                    debug('Database hatası: ' + error.message);
-                    if (error.message.includes('policy')) {
-                        alert('Policies ayarlanmamış! Lütfen Supabase policies ayarlarını kontrol edin.');
-                    }
-                    throw error;
-                }
-
-                debug('Database başarılı!');
-
-                // Başarı mesajı
-                document.getElementById('successMessage').style.display = 'block';
-                document.getElementById('debugInfo').style.display = 'none';
-                
-                // Formu temizle
-                setTimeout(() => {
-                    document.getElementById('successMessage').style.display = 'none';
-                    document.getElementById('fileInput').value = '';
-                    document.getElementById('customerName').value = '';
-                    document.getElementById('documentType').value = '';
-                    document.getElementById('previewArea').innerHTML = '';
-                    document.getElementById('fileInfo').style.display = 'none';
-                }, 3000);
-
-            } catch (error) {
-                debug('HATA: ' + error.message);
-                alert('Evrak kaydedilirken hata oluştu: ' + error.message);
-            }
+            debug(`Dosya başarıyla yüklendi: ${file.name}`);
         }
 
-        // Tab değiştirme
-        function switchTab(tabName) {
+        debug('Tüm dosyalar yüklendi, database kaydediliyor...');
+
+        // VERİTABANINA KAYDET (DOSYA BİLGİLERİYLE)
+        const { data, error } = await supabaseClient
+            .from('documents')
+            .insert([
+                {
+                    customer_name: customerName,
+                    document_type: documentType,
+                    files: fileUrls  // DOSYA BİLGİLERİ EKLENDİ
+                }
+            ]);
+
+        if (error) {
+            debug('Database hatası: ' + error.message);
+            throw error;
+        }
+
+        debug('Database başarılı!');
+
+        // Başarı mesajı
+        document.getElementById('successMessage').style.display = 'block';
+        document.getElementById('debugInfo').style.display = 'none';
+        
+        // Formu temizle
+        setTimeout(() => {
+            document.getElementById('successMessage').style.display = 'none';
+            document.getElementById('fileInput').value = '';
+            document.getElementById('customerName').value = '';
+            document.getElementById('documentType').value = '';
+            document.getElementById('previewArea').innerHTML = '';
+            document.getElementById('fileInfo').style.display = 'none';
+        }, 3000);
+
+    } catch (error) {
+        debug('HATA: ' + error.message);
+        alert('Evrak kaydedilirken hata oluştu: ' + error.message);
+    }
+}
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.remove('active');
             });
